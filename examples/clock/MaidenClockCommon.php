@@ -149,9 +149,10 @@ class MaidenClockCommon extends \Maiden\MaidenDefault {
 	}
 
 	/**
-	 * Installs the project on current environment. This assumes that you are on the correct environment.
+	 * Installs the project on current environment, without triggering an Apache reload. This assumes that you are on 
+	 * the correct environment.
 	 */
-	public function install($environmentName, $version) {
+	public function installWithoutReload($environmentName, $version) {
 		$this->logger->log("Installing '$environmentName' {$this->properties->application->name}");
 		$environment = $this->getEnvironment($environmentName);
 		$buildPath = "build/{$version}/{$this->properties->application->name}";
@@ -190,13 +191,24 @@ class MaidenClockCommon extends \Maiden\MaidenDefault {
 		$this->updateDatabase($environmentName, $actualPath);
 
 		if (file_exists($environment->path)) {
-			$this->logger->log("Remoing existing symlink", Logger::LEVEL_DEBUG);
+			$this->logger->log("Removing existing symlink", Logger::LEVEL_DEBUG);
 			unlink($environment->path);
 		}
 
 		$this->logger->log("Creating symlink from '$actualPath' to '{$environment->path}'");
 		symlink($actualPath, $environment->path);
 
+		$this->logger->log("Install Complete");
+	}
+
+	/**
+	 * Installs the project on current environment, with a server reload. This assumes that you are on the correct
+	 * environment.
+	 */
+	public function install($environmentName, $version) {
+		$this->installWithoutReload($environmentName, $version);
+
+		$this->logger->log("Updating VirtualHost and reloading Apache");
 		$this->addVhostToApache($environmentName);
 		$this->reloadApache();
 
@@ -218,6 +230,21 @@ class MaidenClockCommon extends \Maiden\MaidenDefault {
 
 		$this->remoteExec($environmentName, "cd $tempName && maiden build $environmentName $version");
 		$this->remoteExec($environmentName, "cd $tempName && maiden install $environmentName $version");
+		$this->remoteExec($environmentName, "rm -rf $tempName");
+	}
+
+	/**
+	 * Deploys the code base to the remote environment. Builds then installs the project without updating Apache.
+	 */
+	public function deployWithoutApacheReload($environmentName, $version) {
+		$this->logger->log("Deploying to '$environmentName' {$this->properties->application->name} without Apache reload");
+		$environment = $this->getEnvironment($environmentName);
+
+		$tempName = $this->getTemporyFilename();
+		$this->remoteExec($environmentName, " mkdir $tempName && cd $tempName && git clone -b {$this->properties->scm->deploymentBranch} {$this->properties->scm->url} $tempName && git checkout $version");
+
+		$this->remoteExec($environmentName, "cd $tempName && maiden build $environmentName $version");
+		$this->remoteExec($environmentName, "cd $tempName && maiden installWithoutReload $environmentName $version");
 		$this->remoteExec($environmentName, "rm -rf $tempName");
 	}
 
